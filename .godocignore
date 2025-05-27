@@ -1,0 +1,23 @@
+# Godoc ignore file
+
+# This file tells godoc which files and directories to ignore
+
+# Proto files are now in internal/ package and automatically excluded by Go conventions
+
+# Internal packages are not shown in public documentation
+
+# Ignore proto source files
+
+proto_files/
+
+# Ignore test files from documentation
+
+\*\_test.go
+tests/
+
+# Ignore build and temporary files
+
+.git/
+.github/
+_.tmp
+_.temp

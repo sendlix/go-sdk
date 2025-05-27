@@ -1,0 +1,26 @@
+syntax = "proto3";
+
+package sendlix.api.v1;
+
+option go_package = "github.com/sendlix/go_sdk/internal/proto";
+
+import "google/protobuf/timestamp.proto";
+
+service Auth {
+	rpc GetJwtToken(AuthRequest) returns (AuthResponse) {}
+}
+message AuthResponse {
+	string token = 1;
+	google.protobuf.Timestamp expires = 2;
+}
+
+message AuthRequest {
+	oneof key {
+		ApiKey apiKey = 1;
+	}
+}
+
+message ApiKey {
+	int64 keyID = 1;
+	string secret = 2;
+}

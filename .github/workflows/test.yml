@@ -1,0 +1,74 @@
+name: Test
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: "1.24.3"
+
+      - name: Install protoc
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y protobuf-compiler
+
+      - name: Install protoc-gen-go and protoc-gen-go-grpc
+        run: |
+          go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
+          go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
+
+      - name: Add Go bin to PATH
+        run: echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Make compile.sh executable
+        run: chmod +x ./compile.sh
+
+      - name: Compile proto files
+        run: ./compile.sh
+
+      - name: Verify proto files are up to date
+        run: |
+          if [ -n "$(git status --porcelain pkg/proto/)" ]; then
+            echo "Proto files are not up to date. Please run ./compile.sh and commit the changes."
+            git diff pkg/proto/
+            exit 1
+          fi
+
+      - name: Run tests
+        run: go test -v ./...
+
+      - name: Run tests with race detection
+        run: go test -race -v ./...
+
+      - name: Check code formatting
+        run: |
+          if [ -n "$(gofmt -l .)" ]; then
+            echo "Code is not formatted. Please run 'gofmt -w .'"
+            gofmt -l .
+            exit 1
+          fi
+
+      - name: Run go vet
+        run: go vet ./...
+
+      - name: Run golint (if available)
+        run: |
+          if command -v golint &> /dev/null; then
+            golint ./...
+          else
+            echo "golint not available, skipping"
+          fi

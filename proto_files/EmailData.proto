@@ -1,0 +1,8 @@
+﻿syntax = "proto3";
+option go_package = "github.com/sendlix/go_sdk/internal/proto";
+
+ // Email address information
+message EmailData {
+    string email = 1;
+    string name = 2;
+}
