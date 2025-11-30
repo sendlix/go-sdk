@@ -129,6 +129,7 @@ func NewEmailAddress(addr interface{}) (*EmailAddress, error) {
 // MailContent represents the content and formatting options for an email message.
 // It supports both HTML and plain text content, allowing for rich email formatting
 // while maintaining compatibility with text-only email clients.
+// Deprecated: Use Html, Text, Tracking and Images fields directly in MailOptions instead.
 type MailContent struct {
 	// HTML content of the email (optional)
 	// Should contain valid HTML markup for rich formatting
@@ -141,6 +142,33 @@ type MailContent struct {
 	// Tracking enables email tracking features such as open tracking
 	// and click tracking when supported by the email service
 	Tracking bool
+}
+
+// MimeType represents the MIME type of an embedded image.
+type MimeType int
+
+const (
+	// MimeTypePNG represents PNG image format
+	MimeTypePNG MimeType = iota
+	// MimeTypeJPEG represents JPEG image format
+	MimeTypeJPEG
+	// MimeTypeGIF represents GIF image format
+	MimeTypeGIF
+)
+
+// Image represents an embedded image for email content.
+// Images can be embedded directly in the HTML content using placeholders.
+// The placeholder in the HTML will be replaced with the actual image data.
+type Image struct {
+	// Placeholder is the string in HTML that will be replaced with the image
+	// Example: "{{logo}}" in HTML becomes the actual image
+	Placeholder string
+
+	// Data contains the raw image bytes
+	Data []byte
+
+	// Type specifies the MIME type of the image (PNG, JPEG, or GIF)
+	Type MimeType
 }
 
 // Attachment represents a file attachment for email messages.
@@ -179,8 +207,21 @@ type MailOptions struct {
 	// If not set, replies will go to the From address
 	ReplyTo *EmailAddress
 
-	// Content contains the email body and formatting options (required)
-	Content MailContent
+	// Html content of the email (optional)
+	// Should contain valid HTML markup for rich formatting
+	Html string
+
+	// Text content of the email (optional)
+	// Plain text version for email clients that don't support HTML
+	Text string
+
+	// Tracking enables email tracking features such as open tracking
+	// and click tracking when supported by the email service
+	Tracking bool
+
+	// Images contains embedded images for the email content (optional)
+	// Images are embedded using placeholders in the HTML content
+	Images []Image
 }
 
 // AdditionalOptions provides extended configuration options for email sending.
@@ -195,16 +236,6 @@ type AdditionalOptions struct {
 	// SendAt schedules the email to be sent at a specific time (optional)
 	// If nil, the email is sent immediately
 	SendAt *time.Time
-}
-
-// SendEmailResponse contains the result of an email sending operation.
-// It provides information about the sent messages and remaining quota.
-type SendEmailResponse struct {
-	// MessageList contains message IDs or status information for sent emails
-	MessageList []string
-
-	// EmailsLeft indicates the remaining email quota for the account
-	EmailsLeft int64
 }
 
 // GroupMailData represents the data structure for sending emails to predefined groups.
@@ -243,30 +274,41 @@ type GroupMailData struct {
 //   - additional: Optional advanced settings like attachments and scheduling
 //
 // Returns:
-//   - *SendEmailResponse: Response containing message IDs and quota information
+//   - []string: List of message IDs for the sent emails
 //   - error: Validation or sending error
 //
 // Example:
 //
 //	response, err := client.SendEmail(ctx, sendlix.MailOptions{
-//		From:    sendlix.EmailAddress{Email: "sender@example.com", Name: "Sender"},
-//		To:      []sendlix.EmailAddress{{Email: "recipient@example.com"}},
-//		Subject: "Hello World",
-//		Content: sendlix.MailContent{
-//			HTML: "<h1>Hello World</h1>",
-//			Text: "Hello World",
-//		},
+//		From:     sendlix.EmailAddress{Email: "sender@example.com", Name: "Sender"},
+//		To:       []sendlix.EmailAddress{{Email: "recipient@example.com"}},
+//		Subject:  "Hello World",
+//		Html:     "<h1>Hello World</h1>",
+//		Text:     "Hello World",
+//		Tracking: true,
 //	}, &sendlix.AdditionalOptions{
 //		Category: "newsletter",
 //	})
+//
+// Example with embedded images:
+//
+//	imageData, _ := os.ReadFile("logo.png")
+//	response, err := client.SendEmail(ctx, sendlix.MailOptions{
+//		From:    sendlix.EmailAddress{Email: "sender@example.com"},
+//		To:      []sendlix.EmailAddress{{Email: "recipient@example.com"}},
+//		Subject: "Email with Logo",
+//		Html:    "<h1>Welcome</h1><img src=\"{{logo}}\">",
+//		Images: []sendlix.Image{
+//			{Placeholder: "{{logo}}", Data: imageData, Type: sendlix.MimeTypePNG},
+//		},
+//	}, nil)
 //
 // Common errors:
 //   - Missing required fields (from, to, subject, content)
 //   - Invalid email addresses
 //   - Authentication failures
 //   - Network connectivity issues
-//   - Quota exceeded
-func (c *EmailClient) SendEmail(ctx context.Context, options MailOptions, additional *AdditionalOptions) (*SendEmailResponse, error) {
+func (c *EmailClient) SendEmail(ctx context.Context, options MailOptions, additional *AdditionalOptions) ([]string, error) {
 	// Validate required fields
 	if options.From.Email == "" {
 		return nil, fmt.Errorf("from email is required")
@@ -277,8 +319,20 @@ func (c *EmailClient) SendEmail(ctx context.Context, options MailOptions, additi
 	if options.Subject == "" {
 		return nil, fmt.Errorf("subject is required")
 	}
-	if options.Content.HTML == "" && options.Content.Text == "" {
+	if options.Html == "" && options.Text == "" {
 		return nil, fmt.Errorf("either HTML or text content is required")
+	}
+
+	// Build mail content
+	mailContent := &pb.MailContent{
+		Html:     options.Html,
+		Text:     options.Text,
+		Tracking: options.Tracking,
+	}
+
+	// Add images if provided
+	if len(options.Images) > 0 {
+		mailContent.Images = convertImages(options.Images)
 	}
 
 	// Build request
@@ -287,11 +341,7 @@ func (c *EmailClient) SendEmail(ctx context.Context, options MailOptions, additi
 		To:      convertEmailAddressList(options.To),
 		Subject: options.Subject,
 		Body: &pb.SendMailRequest_TextContent{
-			TextContent: &pb.MailContent{
-				Html:     options.Content.HTML,
-				Text:     options.Content.Text,
-				Tracking: options.Content.Tracking,
-			},
+			TextContent: mailContent,
 		},
 	}
 
@@ -317,10 +367,7 @@ func (c *EmailClient) SendEmail(ctx context.Context, options MailOptions, additi
 		return nil, fmt.Errorf("failed to send email: %v", err)
 	}
 
-	return &SendEmailResponse{
-		MessageList: resp.Message,
-		EmailsLeft:  resp.EmailsLeft,
-	}, nil
+	return resp.Message, nil
 }
 
 // SendEMLEmail sends an email using EML (Email Message Format) data.
@@ -337,7 +384,7 @@ func (c *EmailClient) SendEmail(ctx context.Context, options MailOptions, additi
 //   - additional: Optional settings like scheduling and categorization
 //
 // Returns:
-//   - *SendEmailResponse: Response containing message IDs and quota information
+//   - []string: List of message IDs for the sent emails
 //   - error: Parsing or sending error
 //
 // Example:
@@ -352,7 +399,7 @@ func (c *EmailClient) SendEmail(ctx context.Context, options MailOptions, additi
 //
 // The EML data should be a complete, valid email message including headers
 // and body. Invalid EML format will result in parsing errors.
-func (c *EmailClient) SendEMLEmail(ctx context.Context, emlData []byte, additional *AdditionalOptions) (*SendEmailResponse, error) {
+func (c *EmailClient) SendEMLEmail(ctx context.Context, emlData []byte, additional *AdditionalOptions) ([]string, error) {
 	req := &pb.EmlMailRequest{
 		Mail: emlData,
 	}
@@ -366,10 +413,7 @@ func (c *EmailClient) SendEMLEmail(ctx context.Context, emlData []byte, addition
 		return nil, fmt.Errorf("failed to send EML email: %v", err)
 	}
 
-	return &SendEmailResponse{
-		MessageList: resp.Message,
-		EmailsLeft:  resp.EmailsLeft,
-	}, nil
+	return resp.Message, nil
 }
 
 // SendGroupEmail sends an email to all members of a predefined group.
@@ -385,12 +429,11 @@ func (c *EmailClient) SendEMLEmail(ctx context.Context, emlData []byte, addition
 //   - data: Group email configuration including group ID and content
 //
 // Returns:
-//   - *SendEmailResponse: Response containing message IDs and quota information
-//   - error: Validation or sending error
+//   - error: Validation or sending error, nil on success
 //
 // Example:
 //
-//	response, err := client.SendGroupEmail(ctx, sendlix.GroupMailData{
+//	err := client.SendGroupEmail(ctx, sendlix.GroupMailData{
 //		GroupID: "newsletter-subscribers",
 //		From:    sendlix.EmailAddress{Email: "news@example.com", Name: "Newsletter"},
 //		Subject: "Weekly Newsletter",
@@ -403,18 +446,18 @@ func (c *EmailClient) SendEMLEmail(ctx context.Context, emlData []byte, addition
 //
 // The group must exist and contain email addresses before calling this method.
 // Empty groups will not generate an error but will result in zero emails sent.
-func (c *EmailClient) SendGroupEmail(ctx context.Context, data GroupMailData) (*SendEmailResponse, error) {
+func (c *EmailClient) SendGroupEmail(ctx context.Context, data GroupMailData) error {
 	if data.GroupID == "" {
-		return nil, fmt.Errorf("group ID is required")
+		return fmt.Errorf("group ID is required")
 	}
 	if data.From.Email == "" {
-		return nil, fmt.Errorf("from email is required")
+		return fmt.Errorf("from email is required")
 	}
 	if data.Subject == "" {
-		return nil, fmt.Errorf("subject is required")
+		return fmt.Errorf("subject is required")
 	}
 	if data.Content.HTML == "" && data.Content.Text == "" {
-		return nil, fmt.Errorf("either HTML or text content is required")
+		return fmt.Errorf("either HTML or text content is required")
 	}
 
 	req := &pb.GroupMailData{
@@ -431,15 +474,12 @@ func (c *EmailClient) SendGroupEmail(ctx context.Context, data GroupMailData) (*
 		},
 	}
 
-	resp, err := c.client.SendGroupEmail(ctx, req)
+	_, err := c.client.SendGroupEmail(ctx, req)
 	if err != nil {
-		return nil, fmt.Errorf("failed to send group email: %v", err)
+		return fmt.Errorf("failed to send group email: %v", err)
 	}
 
-	return &SendEmailResponse{
-		MessageList: resp.Message,
-		EmailsLeft:  resp.EmailsLeft,
-	}, nil
+	return nil
 }
 
 // Helper functions for converting between SDK types and protobuf types
@@ -506,4 +546,24 @@ func convertAdditionalOptions(opts *AdditionalOptions) *pb.AdditionalInfos {
 	}
 
 	return info
+}
+
+// convertImages converts a slice of Image to protobuf Images slice.
+// This helper function transforms embedded images for email content.
+//
+// Parameters:
+//   - images: Slice of Image to convert
+//
+// Returns:
+//   - []*pb.Images: Slice of protobuf Images representations
+func convertImages(images []Image) []*pb.Images {
+	result := make([]*pb.Images, len(images))
+	for i, img := range images {
+		result[i] = &pb.Images{
+			Placeholder: img.Placeholder,
+			Image:       img.Data,
+			Type:        pb.MimeType(img.Type),
+		}
+	}
+	return result
 }

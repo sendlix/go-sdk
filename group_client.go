@@ -54,111 +54,124 @@ func NewGroupClient(auth IAuth, config *ClientConfig) (*GroupClient, error) {
 	}, nil
 }
 
-// EmailData represents email address information for group operations.
-// This structure is used when adding or managing email addresses within groups,
-// allowing for both the email address and an optional display name.
-type EmailData struct {
+// FailureHandler defines how to handle failures when inserting multiple emails into a group.
+type FailureHandler int
+
+const (
+	// FailureHandlerSkip skips failed entries and continues with the remaining entries
+	FailureHandlerSkip FailureHandler = iota
+	// FailureHandlerAbort aborts the entire operation on the first failure
+	FailureHandlerAbort
+)
+
+// GroupEntry represents an email entry with optional substitution variables for a group.
+// Each entry contains an email address with optional display name and personalization data.
+type GroupEntry struct {
 	// Email is the email address (required)
 	Email string
 	// Name is the optional display name for the email address
 	Name string
+	// Substitutions contains key-value pairs for email personalization (optional)
+	Substitutions map[string]string
 }
 
-// InsertEmailToGroupResponse represents the result of adding emails to a group.
+// InsertOptions provides configuration options for inserting emails into a group.
+type InsertOptions struct {
+	// OnFailure defines how to handle failures during bulk insert operations
+	// Default is FailureHandlerSkip
+	OnFailure FailureHandler
+}
+
+// UpdateResponse represents the result of a group update operation.
 // It provides detailed information about the operation's success and impact.
-type InsertEmailToGroupResponse struct {
+type UpdateResponse struct {
 	// Success indicates whether the operation completed successfully
 	Success bool
 	// Message provides additional details about the operation result
 	Message string
-	// AffectedRows indicates how many email addresses were successfully added
+	// AffectedRows indicates how many entries were successfully processed
 	AffectedRows int64
 }
 
-// RemoveEmailFromGroupResponse represents the result of removing an email from a group.
-// It provides detailed information about the removal operation's success and impact.
-type RemoveEmailFromGroupResponse struct {
-	// Success indicates whether the operation completed successfully
-	Success bool
-	// Message provides additional details about the operation result
-	Message string
-	// AffectedRows indicates how many email addresses were successfully removed
-	AffectedRows int64
-}
-
-// CheckEmailInGroupResponse represents the result of checking email group membership.
-// It provides a simple boolean result indicating whether the email exists in the group.
-type CheckEmailInGroupResponse struct {
-	// Exists indicates whether the email address is present in the group
-	Exists bool
-}
-
-// InsertEmailToGroup inserts one or multiple emails into a specified group with optional substitutions.
-// This method allows bulk addition of email addresses to groups, making it efficient for
-// managing large subscriber lists. Each email can have associated substitution variables
-// for personalized group communications.
+// InsertEmailsToGroup inserts one or multiple email entries into a specified group.
+// Each entry can have its own substitution variables for personalized group communications.
 //
-// The method validates all input parameters including group ID presence and email address
-// validity for each entry. All emails must have valid email addresses, while display names
-// are optional.
+// This method allows bulk addition of email addresses to groups, making it efficient for
+// managing large subscriber lists. The OnFailure option controls whether to skip failed
+// entries or abort the entire operation.
 //
 // Parameters:
 //   - ctx: Context for the request (supports cancellation and timeouts)
 //   - groupID: Identifier of the target group (required)
-//   - emails: Slice of email data to add to the group (required, at least one)
-//   - substitutions: Optional key-value pairs for email personalization
+//   - entries: Slice of group entries to add (required, at least one)
+//   - options: Optional configuration for the insert operation
 //
 // Returns:
-//   - *InsertEmailToGroupResponse: Operation result with success status and affected rows
+//   - *UpdateResponse: Operation result with success status and affected rows
 //   - error: Validation or operation error
 //
 // Example:
 //
-//	emails := []sendlix.EmailData{
-//		{Email: "user1@example.com", Name: "User One"},
-//		{Email: "user2@example.com", Name: "User Two"},
-//	}
-//	substitutions := map[string]string{
-//		"company": "Example Corp",
-//		"product": "Amazing Product",
+//	entries := []sendlix.GroupEntry{
+//		{
+//			Email: "user1@example.com",
+//			Name:  "User One",
+//			Substitutions: map[string]string{
+//				"first_name": "User",
+//				"discount":   "10%",
+//			},
+//		},
+//		{
+//			Email: "user2@example.com",
+//			Name:  "User Two",
+//			Substitutions: map[string]string{
+//				"first_name": "User",
+//				"discount":   "20%",
+//			},
+//		},
 //	}
 //
-//	response, err := client.InsertEmailToGroup(ctx, "newsletter-group", emails, substitutions)
+//	response, err := client.InsertEmailsToGroup(ctx, "newsletter-group", entries, nil)
 //	if err != nil {
 //		log.Fatal(err)
 //	}
 //	fmt.Printf("Added %d emails successfully\n", response.AffectedRows)
 //
-// Common errors:
-//   - Empty group ID
-//   - Empty email list
-//   - Invalid email addresses
-//   - Group not found
-//   - Permission denied
-func (c *GroupClient) InsertEmailToGroup(ctx context.Context, groupID string, emails []EmailData, substitutions map[string]string) (*InsertEmailToGroupResponse, error) {
+// Example with failure handling:
+//
+//	response, err := client.InsertEmailsToGroup(ctx, "newsletter-group", entries,
+//		&sendlix.InsertOptions{OnFailure: sendlix.FailureHandlerAbort})
+func (c *GroupClient) InsertEmailsToGroup(ctx context.Context, groupID string, entries []GroupEntry, options *InsertOptions) (*UpdateResponse, error) {
 	if groupID == "" {
 		return nil, fmt.Errorf("group ID is required")
 	}
-	if len(emails) == 0 {
-		return nil, fmt.Errorf("at least one email is required")
+	if len(entries) == 0 {
+		return nil, fmt.Errorf("at least one entry is required")
 	}
 
-	// Convert emails to protobuf format
-	pbEmails := make([]*pb.EmailData, len(emails))
-	for i, email := range emails {
-		if email.Email == "" {
-			return nil, fmt.Errorf("email address is required for email at index %d", i)
+	// Convert entries to protobuf format
+	pbEntries := make([]*pb.GroupEntry, len(entries))
+	for i, entry := range entries {
+		if entry.Email == "" {
+			return nil, fmt.Errorf("email address is required for entry at index %d", i)
 		}
-		pbEmails[i] = &pb.EmailData{
-			Email: email.Email,
-			Name:  email.Name,
+		pbEntries[i] = &pb.GroupEntry{
+			Email: &pb.EmailData{
+				Email: entry.Email,
+				Name:  entry.Name,
+			},
+			Substitutions: entry.Substitutions,
 		}
 	}
 
 	req := &pb.InsertEmailToGroupRequest{
-		Emails:        pbEmails,
-		GroupId:       groupID,
-		Substitutions: substitutions,
+		Entries: pbEntries,
+		GroupId: groupID,
+	}
+
+	// Set failure handler if options provided
+	if options != nil {
+		req.OnFailure = pb.FailureHandler(options.OnFailure)
 	}
 
 	resp, err := c.client.InsertEmailToGroup(ctx, req)
@@ -166,40 +179,38 @@ func (c *GroupClient) InsertEmailToGroup(ctx context.Context, groupID string, em
 		return nil, fmt.Errorf("failed to insert emails to group: %v", err)
 	}
 
-	return &InsertEmailToGroupResponse{
+	return &UpdateResponse{
 		Success:      resp.Success,
 		Message:      resp.Message,
 		AffectedRows: resp.AffectedRows,
 	}, nil
 }
 
-// InsertSingleEmailToGroup inserts a single email into a group with optional substitutions.
-// This is a convenience method that wraps InsertEmailToGroup for single email operations,
-// providing a simpler interface when only one email address needs to be added.
+// InsertEmailToGroup inserts a single email into a group with optional substitutions.
+// This is a convenience method for adding a single email address to a group.
 //
 // Parameters:
 //   - ctx: Context for the request (supports cancellation and timeouts)
 //   - groupID: Identifier of the target group (required)
-//   - email: Email data to add to the group (required)
-//   - substitutions: Optional key-value pairs for email personalization
+//   - entry: Group entry to add (required)
 //
 // Returns:
-//   - *InsertEmailToGroupResponse: Operation result with success status
+//   - *UpdateResponse: Operation result with success status
 //   - error: Validation or operation error
 //
 // Example:
 //
-//	email := sendlix.EmailData{
+//	entry := sendlix.GroupEntry{
 //		Email: "newuser@example.com",
 //		Name:  "New User",
-//	}
-//	substitutions := map[string]string{
-//		"welcome_bonus": "20% off",
+//		Substitutions: map[string]string{
+//			"welcome_bonus": "20% off",
+//		},
 //	}
 //
-//	response, err := client.InsertSingleEmailToGroup(ctx, "customers", email, substitutions)
-func (c *GroupClient) InsertSingleEmailToGroup(ctx context.Context, groupID string, email EmailData, substitutions map[string]string) (*InsertEmailToGroupResponse, error) {
-	return c.InsertEmailToGroup(ctx, groupID, []EmailData{email}, substitutions)
+//	response, err := client.InsertEmailToGroup(ctx, "customers", entry)
+func (c *GroupClient) InsertEmailToGroup(ctx context.Context, groupID string, entry GroupEntry) (*UpdateResponse, error) {
+	return c.InsertEmailsToGroup(ctx, groupID, []GroupEntry{entry}, nil)
 }
 
 // RemoveEmailFromGroup removes a specific email address from a group.
@@ -215,7 +226,7 @@ func (c *GroupClient) InsertSingleEmailToGroup(ctx context.Context, groupID stri
 //   - email: Email address to remove from the group (required)
 //
 // Returns:
-//   - *RemoveEmailFromGroupResponse: Operation result with success status and affected rows
+//   - *UpdateResponse: Operation result with success status and affected rows
 //   - error: Validation or operation error
 //
 // Example:
@@ -229,13 +240,7 @@ func (c *GroupClient) InsertSingleEmailToGroup(ctx context.Context, groupID stri
 //	} else {
 //		fmt.Println("Email was not found in group")
 //	}
-//
-// Common errors:
-//   - Empty group ID
-//   - Empty email address
-//   - Group not found
-//   - Permission denied
-func (c *GroupClient) RemoveEmailFromGroup(ctx context.Context, groupID string, email string) (*RemoveEmailFromGroupResponse, error) {
+func (c *GroupClient) RemoveEmailFromGroup(ctx context.Context, groupID string, email string) (*UpdateResponse, error) {
 	if groupID == "" {
 		return nil, fmt.Errorf("group ID is required")
 	}
@@ -253,7 +258,7 @@ func (c *GroupClient) RemoveEmailFromGroup(ctx context.Context, groupID string, 
 		return nil, fmt.Errorf("failed to remove email from group: %v", err)
 	}
 
-	return &RemoveEmailFromGroupResponse{
+	return &UpdateResponse{
 		Success:      resp.Success,
 		Message:      resp.Message,
 		AffectedRows: resp.AffectedRows,
@@ -264,47 +269,32 @@ func (c *GroupClient) RemoveEmailFromGroup(ctx context.Context, groupID string, 
 // This method provides a simple way to verify group membership before performing
 // other operations like sending group emails or managing subscriptions.
 //
-// The check is performed efficiently on the server side and returns a boolean
-// result indicating membership status.
-//
 // Parameters:
 //   - ctx: Context for the request (supports cancellation and timeouts)
 //   - groupID: Identifier of the target group (required)
 //   - email: Email address to check for membership (required)
 //
 // Returns:
-//   - *CheckEmailInGroupResponse: Result containing membership status
+//   - bool: true if the email exists in the group, false otherwise
 //   - error: Validation or operation error
 //
 // Example:
 //
-//	response, err := client.CheckEmailInGroup(ctx, "newsletter-group", "user@example.com")
+//	exists, err := client.CheckEmailInGroup(ctx, "newsletter-group", "user@example.com")
 //	if err != nil {
 //		log.Fatal(err)
 //	}
-//	if response.Exists {
+//	if exists {
 //		fmt.Println("Email is subscribed to the group")
 //	} else {
 //		fmt.Println("Email is not in the group")
 //	}
-//
-// This method is useful for:
-//   - Preventing duplicate subscriptions
-//   - Verifying membership before group operations
-//   - Implementing subscription status checks
-//   - Building user interfaces that show group membership
-//
-// Common errors:
-//   - Empty group ID
-//   - Empty email address
-//   - Group not found
-//   - Permission denied
-func (c *GroupClient) CheckEmailInGroup(ctx context.Context, groupID string, email string) (*CheckEmailInGroupResponse, error) {
+func (c *GroupClient) CheckEmailInGroup(ctx context.Context, groupID string, email string) (bool, error) {
 	if groupID == "" {
-		return nil, fmt.Errorf("group ID is required")
+		return false, fmt.Errorf("group ID is required")
 	}
 	if email == "" {
-		return nil, fmt.Errorf("email address is required")
+		return false, fmt.Errorf("email address is required")
 	}
 
 	req := &pb.CheckEmailInGroupRequest{
@@ -314,10 +304,8 @@ func (c *GroupClient) CheckEmailInGroup(ctx context.Context, groupID string, ema
 
 	resp, err := c.client.CheckEmailInGroup(ctx, req)
 	if err != nil {
-		return nil, fmt.Errorf("failed to check email in group: %v", err)
+		return false, fmt.Errorf("failed to check email in group: %v", err)
 	}
 
-	return &CheckEmailInGroupResponse{
-		Exists: resp.Exists,
-	}, nil
+	return resp.Exists, nil
 }

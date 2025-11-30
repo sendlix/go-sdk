@@ -2,12 +2,10 @@ syntax = "proto3";
 
 package sendlix.api.v1;
 
-import "google/protobuf/timestamp.proto";
-import "EmailData.proto";
-
-
 option go_package = "github.com/sendlix/go_sdk/internal/proto";
 
+import "google/protobuf/timestamp.proto";
+import "EmailData.proto";
 
 service Email {
   rpc SendEmail (SendMailRequest) returns (SendEmailResponse) {}
@@ -38,9 +36,22 @@ message SendEmailResponse {
 
 
 message MailContent {
-  string html = 1;
-  string text = 2;
-  bool tracking = 3;
+   string html = 1;
+   string text = 2;
+   bool tracking = 3;
+   repeated Images Images = 4;
+}
+
+message Images {
+    string placeholder = 1;
+    bytes Image = 3;
+    MimeType type = 2;
+}
+
+enum MimeType  {
+    PNG = 0;
+    JPEG = 1;
+    GIF = 2;
 }
 
 message AttachmentData {
@@ -57,7 +68,7 @@ message AttachmentData {
   
     // Sender information
     EmailData from = 4;
-      EmailData reply_to = 5;
+     EmailData reply_to = 5;
   
     // Email content fields
     string subject = 6;
@@ -72,6 +83,6 @@ message AttachmentData {
 
 message AdditionalInfos {
   repeated AttachmentData attachments = 1;
-    string category = 2;  
-    google.protobuf.Timestamp send_at = 4;
+   string category = 2;  
+   google.protobuf.Timestamp send_at = 4;
 }
