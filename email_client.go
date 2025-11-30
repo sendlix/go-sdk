@@ -24,14 +24,22 @@ type EmailClient struct {
 // The client establishes a gRPC connection to the Sendlix email service and is ready for immediate use.
 //
 // Parameters:
-//   - auth: Authentication implementation (required)
+//   - auth: Authentication - either an IAuth implementation or an API key string (required)
 //   - config: Client configuration (optional, uses defaults if nil)
 //
 // Returns:
 //   - *EmailClient: Configured email client
 //   - error: Any error encountered during client creation
 //
-// Example:
+// Example with API key string:
+//
+//	client, err := sendlix.NewEmailClient("secret.keyid", nil)
+//	if err != nil {
+//		log.Fatal(err)
+//	}
+//	defer client.Close()
+//
+// Example with IAuth:
 //
 //	auth, err := sendlix.NewAuth("secret.keyid")
 //	if err != nil {
@@ -43,8 +51,13 @@ type EmailClient struct {
 //		log.Fatal(err)
 //	}
 //	defer client.Close()
-func NewEmailClient(auth IAuth, config *ClientConfig) (*EmailClient, error) {
-	baseClient, err := NewBaseClient(auth, config)
+func NewEmailClient(auth interface{}, config *ClientConfig) (*EmailClient, error) {
+	resolvedAuth, err := resolveAuth(auth)
+	if err != nil {
+		return nil, err
+	}
+
+	baseClient, err := NewBaseClient(resolvedAuth, config)
 	if err != nil {
 		return nil, err
 	}
@@ -566,4 +579,24 @@ func convertImages(images []Image) []*pb.Images {
 		}
 	}
 	return result
+}
+
+// resolveAuth converts an auth parameter to an IAuth implementation.
+// It accepts either an IAuth implementation directly or an API key string.
+//
+// Parameters:
+//   - auth: Either an IAuth implementation or an API key string
+//
+// Returns:
+//   - IAuth: Resolved authentication implementation
+//   - error: Error if the auth type is invalid or API key parsing fails
+func resolveAuth(auth interface{}) (IAuth, error) {
+	switch v := auth.(type) {
+	case IAuth:
+		return v, nil
+	case string:
+		return NewAuth(v)
+	default:
+		return nil, fmt.Errorf("invalid auth type: %T, expected IAuth or string", auth)
+	}
 }

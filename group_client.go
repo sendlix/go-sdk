@@ -23,14 +23,22 @@ type GroupClient struct {
 // The client establishes a gRPC connection to the Sendlix group service and is ready for immediate use.
 //
 // Parameters:
-//   - auth: Authentication implementation (required)
+//   - auth: Authentication - either an IAuth implementation or an API key string (required)
 //   - config: Client configuration (optional, uses defaults if nil)
 //
 // Returns:
 //   - *GroupClient: Configured group client
 //   - error: Any error encountered during client creation
 //
-// Example:
+// Example with API key string:
+//
+//	client, err := sendlix.NewGroupClient("secret.keyid", nil)
+//	if err != nil {
+//		log.Fatal(err)
+//	}
+//	defer client.Close()
+//
+// Example with IAuth:
 //
 //	auth, err := sendlix.NewAuth("secret.keyid")
 //	if err != nil {
@@ -42,8 +50,13 @@ type GroupClient struct {
 //		log.Fatal(err)
 //	}
 //	defer client.Close()
-func NewGroupClient(auth IAuth, config *ClientConfig) (*GroupClient, error) {
-	baseClient, err := NewBaseClient(auth, config)
+func NewGroupClient(auth interface{}, config *ClientConfig) (*GroupClient, error) {
+	resolvedAuth, err := resolveAuth(auth)
+	if err != nil {
+		return nil, err
+	}
+
+	baseClient, err := NewBaseClient(resolvedAuth, config)
 	if err != nil {
 		return nil, err
 	}
