@@ -15,30 +15,22 @@
 //
 // To get started with the Sendlix SDK, you'll need an API key from your Sendlix account:
 //
-//	import "github.com/sendlix/go-sdk/pkg"
+//	import "github.com/sendlix/go-sdk"
 //
-//	// Create authentication with your API key
-//	auth, err := sendlix.NewAuth("your-secret.your-key-id")
-//	if err != nil {
-//		log.Fatal(err)
-//	}
-//
-//	// Create an email client
-//	client, err := sendlix.NewEmailClient(auth, nil)
+//	// Create an email client with your API key
+//	client, err := sendlix.NewEmailClient("your-secret.your-key-id", nil)
 //	if err != nil {
 //		log.Fatal(err)
 //	}
 //	defer client.Close()
 //
 //	// Send a simple email
-//	response, err := client.SendEmail(context.Background(), sendlix.MailOptions{
+//	messageIDs, err := client.SendEmail(context.Background(), sendlix.MailOptions{
 //		From:    sendlix.EmailAddress{Email: "sender@example.com", Name: "Sender Name"},
 //		To:      []sendlix.EmailAddress{{Email: "recipient@example.com", Name: "Recipient"}},
 //		Subject: "Hello from Sendlix!",
-//		Content: sendlix.MailContent{
-//			HTML: "<h1>Hello World!</h1><p>This is a test email.</p>",
-//			Text: "Hello World!\n\nThis is a test email.",
-//		},
+//		Html:    "<h1>Hello World!</h1><p>This is a test email.</p>",
+//		Text:    "Hello World!\n\nThis is a test email.",
 //	}, nil)
 //
 // For more examples and advanced usage, see the individual type documentation

@@ -299,6 +299,6 @@ This SDK is licensed under the Apache License 2.0. See [LICENSE](LICENSE) for de
 
 For support and questions:
 
-- 📚 [Documentation](https://docs.sendlix.com)
-- 📧 [Email Support](mailto:info@sendlix.com)
-- 🐛 [Report Issues](https://github.com/sendlix/go-sdk/issues)
+- [Documentation](https://docs.sendlix.com)
+- [Email Support](mailto:info@sendlix.com)
+- [Report Issues](https://github.com/sendlix/go-sdk/issues)
